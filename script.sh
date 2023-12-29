@@ -9,7 +9,7 @@ SF_LINK="https://sourceforge.net/projects/semutprjct/files/Lavender/"
 
 # Set your Telegram bot token and chat ID
 BOT_TOKEN="634395216f41de7edce9538eba836afb9bdc80b7"
-CHAT_ID="YOUR_CHAT_ID"
+CHAT_ID="6002298249"
 
 # Set your branch for device tree, vendor tree, kernel tree, and custom ROM
 DT_BRANCH=""
