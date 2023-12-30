@@ -1,0 +1,151 @@
+#!/bin/bash
+
+# Set your GitHub username and repository name
+YOUR_GITHUB_USERNAME="your_github_username"
+YOUR_REPO_NAME="your_repo_name"
+
+# Clone repository
+mkdir -p /mnt/rizkyfebian/sup
+cd /mnt/rizkyfebian/sup
+umask 0000
+rm -rf out
+rm -rf .git/local_manifests
+git clone https://github.com/FebriCahyaa/local_manifest.git -b main .repo/local_manifests
+repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+
+# Build information
+DIRR="/mnt/rizkyfebian/supri"
+ROM_NAME="SuperiorExtended"
+LUNCH="superior_lavender-userdebug"
+MAKE_TARGET="bacon"
+CHATID="6002298249"
+API_BOT="6481626578:AAGGF58KHiqkUnmHHnVlaBHc3Tcqyh3eQD8"
+
+# Set your GitHub username and repository name
+GITHUB_USERNAME="$YOUR_GITHUB_USERNAME"
+REPO_NAME="$YOUR_REPO_NAME"
+
+# SourceForge credentials
+SF_USERNAME="your_sourceforge_username"
+SF_PASSWORD="your_sourceforge_password"
+SF_HOST="frs.sourceforge.net"
+SF_REMOTE_DIR="/home/frs/project/your_project_name"
+
+# Setup Telegram Environment
+export BOT_MSG_URL="https://api.telegram.org/bot$API_BOT/sendMessage"
+export BOT_BUILD_URL="https://api.telegram.org/bot$API_BOT/sendDocument"
+
+# Function to upload to SourceForge via SFTP
+upload_to_sourceforge() {
+    local local_file="$1"
+    local remote_file="$SF_REMOTE_DIR/$(basename "$local_file")"
+    
+    echo "Uploading to SourceForge..."
+    sshpass -p "$SF_PASSWORD" sftp -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null "$SF_USERNAME@$SF_HOST" <<EOF
+        cd "$SF_REMOTE_DIR"
+        put "$local_file"
+        bye
+EOF
+    echo "Upload to SourceForge completed."
+}
+
+# Function to upload to Telegram
+upload_to_telegram() {
+    if [ -f out/target/product/$DEVICE/*2023*zip ]; then
+        zip=$(up out/target/product/$DEVICE/*2023*zip)
+        md5sum=$(md5sum "$OUT"/*2023*zip | awk '{print $1}')
+        size=$(ls -sh "$OUT"/*2023*zip | awk '{print $1}')
+        END=$(TZ=Asia/Jakarta date +"%s")
+        DIFF=$(( END - START ))
+        percent=$(tail -n 1 log.txt | awk '{print $2}' | tr -d '()%')
+        build_time=$(date -d "@$DIFF" -u +%H:%M:%S)
+        message  "<b>Build Status:</b> <code>Success</code>%0A%0A<b>Build Date:</b> <code>$BUILD_DATE</code>%0A<b>Build Time:</b> <code>$build_time</code>%0A<b>Size:</b> <code>$size</code>%0A<b>Md5sum:</b> <code>$md5sum</code>%0A<b>Download Link:</b> <code>$zip</code>%0A<b>Progress:</b> <code>$percent%</code>" "$CHATID" > /dev/null
+        error "log.txt" "$CHATID" > /dev/null
+
+        # Upload to SourceForge
+        upload_to_sourceforge "$OUT"/*2023*zip
+    fi
+}
+
+# Function to build ROM
+build_rom() {
+    cd "$DIRR"
+    source build/envsetup.sh
+    lunch "$LUNCH"
+    make "$MAKE_TARGET" 2>&1 | tee log.txt | \
+    while IFS= read -r line; do
+        if [[ $line == *":"* ]]; then
+            progress=${line##*:}
+            percent=${progress%%.*}
+            message "<b>Build Progress:</b> <code>$percent%</code>" "$CHATID" > /dev/null
+        fi
+    done
+}
+
+# Function to get commit information from GitHub
+get_commit_info() {
+    local commit_sha="$1"
+    local commit_info=$(curl -s -H "Authorization: token $API_TOKEN" \
+        "https://api.github.com/repos/$GITHUB_USERNAME/$REPO_NAME/commits/$commit_sha")
+    echo "$commit_info"
+}
+
+# Function to extract changelog, devices, kernel, and vendor info
+extract_changelog_info() {
+    local commit_sha="$1"
+    local commit_info=$(get_commit_info "$commit_sha")
+
+    changelog=$(echo "$commit_info" | jq -r '.commit.message')
+    devices=$(echo "$commit_info" | jq -r '.files[] | select(.filename | contains("devices")) | .filename')
+    kernel=$(echo "$commit_info" | jq -r '.files[] | select(.filename | contains("kernel")) | .filename')
+    vendor=$(echo "$commit_info" | jq -r '.files[] | select(.filename | contains("vendor")) | .filename')
+
+    echo "<b>Changelog:</b>%0A<code>$changelog</code>%0A%0A<b>Devices:</b>%0A<code>$devices</code>%0A%0A<b>Kernel:</b>%0A<code>$kernel</code>%0A%0A<b>Vendor:</b>%0A<code>$vendor</code>"
+}
+
+# Function to send message to Telegram
+send_telegram_message() {
+    local message="$1"
+    curl -s -X POST "$BOT_MSG_URL" -d chat_id="$CHATID" \
+        -d "parse_mode=html" \
+        -d text="$message"
+}
+
+# Cleanup old builds/logs
+cleanup() {
+    if [ -f "$OUT"/*2023*.zip ]; then
+        rm "$OUT"/*2023*.zip
+    fi
+    if [ -f "$ERROR_LOG" ]; then
+        rm "$ERROR_LOG"
+    fi
+    if [ -f log.txt ]; then
+        rm log.txt
+    fi
+}
+
+# Function to upload
+upload() {
+    upload_to_telegram
+}
+
+# Start build process
+START=$(TZ=Asia/Jakarta date +"%s")
+BUILD_DATE=$(TZ=Asia/Jakarta date +"%Y-%m-%d %H:%M:%S")
+message "<b>Starting build</b>%0A%0A<b>Rom name:</b> <code>$ROM_NAME</code>%0A<b>Device:</b> <code>$DEVICE</code>%0A<b>Source directory:</b> <code>$(pwd)</code>%0A<b>Make Target:</b> <code>$MAKE_TARGET</code>" "$CHATID" > /dev/null
+
+cleanup
+build_rom
+check
+upload
+
+# Get latest commit sha
+latest_commit_sha=$(curl -s -H "Authorization: token $API_TOKEN" \
+    "https://api.github.com/repos/$GITHUB_USERNAME/$REPO_NAME/commits" | \
+    jq -r '.[0].sha')
+
+# Extract changelog info
+changelog_info=$(extract_changelog_info "$latest_commit_sha")
+
+# Send changelog info to Telegram
+send_telegram_message "$changelog_info"
