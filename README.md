@@ -1,4 +1,4 @@
-# Nama Projek Anda
+# jenkins-script
 
 Proyek ini dilisensikan di bawah FebriCahyaa - lihat berkas [LICENSE](https://raw.githubusercontent.com/FebriCahyaa/jenkins-script/main/LICENSE) untuk detail lebih lanjut.
 
