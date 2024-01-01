@@ -151,8 +151,8 @@ clean_and_create_directory "$clean_directory"
 repo_sync
 
 # Inisialisasi repo dengan link GitHub
-repo_url="https://github.com/your/repo.git"
-repo_branch="main"  # Ganti dengan nama branch yang diinginkan
+repo_url="https://github.com/AfterLifePrjkt13/android_manifest.git"
+repo_branch="4.0"  # Ganti dengan nama branch yang diinginkan
 init_repo "$repo_url" "$repo_branch"
 
 # Clone local manifest repository
