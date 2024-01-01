@@ -1,30 +1,19 @@
 #!/bin/bash
 
-# Skrip awalan untuk direktori /mnt/rizkyfebian/sup dan konfigurasi awal Telegram
-
-# Mengahpus direktori yang sudah ada
-rm -rf /mnt/rizkyfebian/sus
-
-# Membuat direktori (jika belum ada)
-mkdir -p /mnt/rizkyfebian/sus
-cd /mnt/rizkyfebian/sus
-
-# Set umask ke 0000
-umask 0000
-
-# Konfigurasi awal Telegram
-TELEGRAM_API_KEY="6946505231:AAH2L1QKhNWEBfJSDwZImGRhkEwfBLQzyy8"
-TELEGRAM_CHAT_ID="-1002039884441"
-
-# Konfigurasi SFTP SourceForge
-SFTP_USERNAME="semutimut76"
-SFTP_PASSWORD="Fbrichy2402"
-SFTP_HOST="frs.sourceforge.net"
-SFTP_REMOTE_DIR="/home/frs/project/semutprjct/Lavender"
-
-# Nama file untuk log error, log keberhasilan, dan log saat pembangunan ROM dimulai
-ERROR_LOG="out/error.log"
-LOG_BUILD_START="build_start.log"
+# Informasi Proyek
+clean_directory="/mnt/rizkyfebian/rom"
+CORE=8
+TELEGRAM_API_KEY="YOUR_BOT_TOKEN"
+TELEGRAM_CHAT_ID="YOUR_CHAT_ID"
+SF_USERNAME="your_sf_username"
+SF_HOST="frs.sourceforge.net"
+SF_REMOTE_DIR="/home/frs/project/your_project"
+SF_PASSWORD="your_sf_password"
+ROM_NAME="your_rom_name"
+LUNCH="your_device-userdebug"  # Sesuaikan dengan proyek Anda
+MAINTAINER="Your Name"
+CHANGES_FILE="changelog.txt"
+ERROR_LOG="error.log"
 
 # Fungsi untuk mengirim pesan Telegram
 send_telegram_message() {
@@ -33,170 +22,158 @@ send_telegram_message() {
     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_API_KEY/sendMessage" -d "chat_id=$TELEGRAM_CHAT_ID&text=$color$message" -d "parse_mode=MarkdownV2" --output /dev/null
 }
 
-# Fungsi untuk mengirim file error.log ke Telegram
-send_error_log() {
-    send_telegram_message "📄 Mengirim file error.log..." "🟥"
-    curl -F document=@"$ERROR_LOG" "https://api.telegram.org/bot$TELEGRAM_API_KEY/sendDocument?chat_id=$TELEGRAM_CHAT_ID" 2>&1 | \
+# Fungsi untuk menampilkan angka yang berjalan
+show_progress() {
+    local total=$1
+    for ((i = 1; i <= total; i++)); do
+        echo -ne "Proses berlangsung: $i% \r"
+        sleep 0.1
+    done
+    echo -e "\n"
+}
+
+# Fungsi untuk menghapus dan membuat direktori
+clean_and_create_directory() {
+    local directory="$1"
+    send_telegram_message "🔄 Menghapus dan membuat direktori pada: $(date +"%Y-%m-%d %H:%M:%S")" "🔄"
+    rm -rf "$directory"
+    mkdir -p "$directory"
+    send_telegram_message "✅ Direktori dibuat pada: $(date +"%Y-%m-%d %H:%M:%S")" "✅"
+}
+
+# Fungsi untuk repo sync
+repo_sync() {
+    send_telegram_message "🔄 Repo Sync dimulai dengan $CORE core..." "🔄"
+    show_progress 100
+    repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$CORE  2>&1 | \
     while IFS= read -r line; do
-        if [[ $line == *"error"* ]]; then
-            send_telegram_message "❌ Error saat mengirim file error.log ke Telegram: $line" "🟥"
+        if [[ $line == *"fatal"* || $line == *"error"* ]]; then
+            send_telegram_message "❌ Error: $line" "❌"
+            echo "$(date +"%Y-%m-%d %H:%M:%S") - $line" >> "$ERROR_LOG"
+            exit 1
         fi
     done
+    send_telegram_message "✅ Repo Sync selesai dengan $CORE core." "✅"
 }
 
-# Fungsi untuk mendapatkan waktu saat ini sesuai zona waktu Asia/Jakarta
-get_current_time_asia_jakarta() {
-    TZ=Asia/Jakarta date +"%Y-%m-%d %H:%M:%S"
+# Fungsi untuk inisialisasi repo
+init_repo() {
+    local url="$1"
+    local branch="$2"
+    send_telegram_message "🚀 Inisialisasi repo dimulai pada: $(date +"%Y-%m-%d %H:%M:%S")" "🚀"
+    repo init --depth=1 --no-repo-verify -u "$url" -b "$branch" -g default,-mips,-darwin,-notdefault
+    send_telegram_message "🚀 Inisialisasi repo selesai pada: $(date +"%Y-%m-%d %H:%M:%S")" "🚀"
 }
 
-# Fungsi untuk mencatat waktu awal pembangunan ROM
-log_build_start() {
-    BUILD_START_TIME=$(get_current_time_asia_jakarta)
-    echo "🚀 Memulai proses membangun ROM pada $BUILD_START_TIME" >> "$LOG_BUILD_START"
+# Fungsi untuk clone local manifest repository
+clone_manifest() {
+    local url="$1"
+    local branch="$2"
+    send_telegram_message "🚀 Clone local manifest repository dimulai pada: $(date +"%Y-%m-%d %H:%M:%S")" "🚀"
+    git clone "$url" -b "$branch" .repo/local_manifests
+    send_telegram_message "🚀 Clone local manifest repository selesai pada: $(date +"%Y-%m-%d %H:%M:%S")" "🚀"
 }
 
-# Fungsi untuk mencatat waktu selesai pembangunan ROM dan total waktu pembangunan
-log_build_end() {
-    BUILD_END_TIME=$(get_current_time_asia_jakarta)
-    echo "🏁 Selesai membangun ROM pada $BUILD_END_TIME" >> "$LOG_BUILD_START"
-    start_time_unix=$(date -d "$BUILD_START_TIME" +%s)
-    end_time_unix=$(date -d "$BUILD_END_TIME" +%s)
-    build_duration=$((end_time_unix - start_time_unix))
-    build_duration_min=$((build_duration / 60))
-    build_duration_sec=$((build_duration % 60))
-    echo "⌛ Total waktu pembangunan: $build_duration_min menit $build_duration_sec detik" >> "$LOG_BUILD_START"
+# Fungsi untuk skenario build ROM
+build_rom() {
+    send_telegram_message "🔄 Skenario build ROM dimulai..." "🔄"
+    source build/envsetup.sh
+    send_telegram_message "🚀 Memilih perangkat dan mode build (LUNCH) pada: $(date +"%Y-%m-%d %H:%M:%S")" "🚀"
+    lunch $LUNCH
+    send_telegram_message "🛠️ Perintah make untuk membangun ROM:" "🛠️"
+    send_telegram_message "📋 make -j$CORE" "📋"
+    make -j$CORE
+    send_telegram_message "🚀 Pembangunan ROM selesai pada: $(date +"%Y-%m-%d %H:%M:%S")" "🚀"
 }
 
-# Fungsi untuk membersihkan file-file yang tidak diperlukan setelah selesai membangun ROM
-cleanup_after_build() {
-    rm -rf out
-}
-
-# Fungsi untuk mengunggah file ROM ke SFTP SourceForge
-upload_to_sftp() {
-    local local_file_path="$1"
-    local remote_file_path="$2"
-    send_telegram_message "🚀 Mengunggah file ROM ke SourceForge..." "🟩"
-    sshpass -p "$SFTP_PASSWORD" sftp -oBatchMode=no -b - "$SFTP_USERNAME@$SFTP_HOST" <<EOL | tee -a "$LOG_BUILD_START"
-cd "$SFTP_REMOTE_DIR/$remote_file_path"
-put "$local_file_path"
-bye
-EOL
-}
-
-# Fungsi untuk mengirimkan persentase pembangunan ke Telegram
-send_build_progress() {
-    local total_steps=$1
-    local current_step=$2
-    local percentage=$((current_step * 100 / total_steps))
-
-    # Menentukan emotikon berdasarkan persentase
-    if [[ percentage -lt 25 ]]; then
-        progress_emoji="🟥"
-    elif [[ percentage -lt 50 ]]; then
-        progress_emoji="🟧"
-    elif [[ percentage -lt 75 ]]; then
-        progress_emoji="🟨"
+# Fungsi untuk membuat changelog
+create_changelog() {
+    send_telegram_message "🚀 Membuat changelog pada: $(date +"%Y-%m-%d %H:%M:%S")" "🚀"
+    git log --pretty=format:"%h - %s (%an)" > "$CHANGES_FILE"
+    if [ -f "$CHANGES_FILE" ]; then
+        while IFS= read -r line; do
+            send_telegram_message "$line" ""
+        done < "$CHANGES_FILE"
     else
-        progress_emoji="🟩"
+        send_telegram_message "❌ Changelog tidak ditemukan." "❌"
     fi
-
-    send_telegram_message "🔨 Progress pembangunan: $progress_emoji $percentage%" "🟩"
 }
 
-# Fungsi untuk mengirim stiker awal sebagai penanda dimulainya build
-send_start_sticker() {
-    local sticker_id="CAACAgUAAxkBAAEojkFlkGQne2zszebg67ez9_pe_qc_zAACgwMAAmFGmFeh3JRczKxoDTQE"  # Ganti dengan ID stiker yang Anda inginkan
-    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_API_KEY/sendSticker" -d "chat_id=$TELEGRAM_CHAT_ID&sticker=$sticker_id"
+# Fungsi untuk upload ROM ke SourceForge
+upload_rom() {
+    send_telegram_message "🚀 Upload ROM dimulai pada: $(date +"%Y-%m-%d %H:%M:%S")" "🚀"
+    ROM_FILENAME="$(date +'%Y%m%d')_${ROM_NAME}.zip"
+    sshpass -p "$SF_PASSWORD" sftp "$SF_USERNAME@$SF_HOST:$SF_REMOTE_DIR" <<EOF
+      put out/target/product/$LUNCH/$ROM_FILENAME
+      exit
+EOF
+
+    # Penanganan kesalahan upload
+    if [ $? -eq 0 ]; then
+        upload_end_time=$(date +"%Y-%m-%d %H:%M:%S")
+        send_telegram_message "🚀 Upload ROM selesai pada: $upload_end_time" "🚀"
+
+        # Menampilkan link download setelah berhasil upload
+        ROM_DOWNLOAD_LINK="https://your_sourceforge_url/path/to/$ROM_FILENAME"
+        send_telegram_message "🔗 Link download ROM: [Download Here]($ROM_DOWNLOAD_LINK)" "🔗"
+    else
+        send_telegram_message "❌ Error: Upload ROM gagal." "❌"
+        echo "$(date +"%Y-%m-%d %H:%M:%S") - Error: Upload ROM gagal." >> "$ERROR_LOG"
+        send_telegram_message "❌ Proses upload ROM gagal. Silakan periksa log untuk informasi lebih lanjut." "❌"
+
+        # Hapus directory setelah selesai mengupload jika proses upload berhasil
+        send_telegram_message "🔄 Menghapus direktori setelah upload selesai..." "🔄"
+        rm -rf "$clean_directory"
+        send_telegram_message "✅ Direktori dihapus setelah upload selesai." "✅"
+    fi
 }
 
-# Mengirim stiker awal sebelum memulai pesan utama
-send_start_sticker
+# Fungsi untuk menghitung integritas SHA untuk ROM
+calculate_sha() {
+    send_telegram_message "🔄 Menghitung integritas SHA untuk ROM..." "🔄"
+    SHA_SUM=$(sha256sum "out/target/product/$LUNCH/$ROM_FILENAME" | awk '{print $1}')
+    send_telegram_message "✅ Integritas SHA ROM: $SHA_SUM" "✅"
+}
 
-# Mengirim pesan awal
-send_telegram_message "Inisialisasi skrip telah selesai pada $(get_current_time_asia_jakarta). Memulai tugas..." "🔵"
+# Fungsi untuk membuat error log ketika mengalami masalah
+create_error_log() {
+    send_telegram_message "🔄 Membuat error log pada: $(date +"%Y-%m-%d %H:%M:%S")" "🔄"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - Terjadi kesalahan selama proses." >> "$ERROR_LOG"
+    send_telegram_message "✅ Error log telah dibuat." "✅"
+}
 
-# Repo Initialization with Additional Link
-REPO_URL="https://github.com/FebriCahyaa/manifest.git"
-REPO_BRANCH="thirteen"
+# Main Script
 
-# Menggunakan backslash untuk melanjutkan ke baris berikutnya
-repo init -u $REPO_URL -b $REPO_BRANCH
-
-# Clone local manifest repository
-git clone https://github.com/FebriCahyaa/local_manifest.git -b supext .repo/local_manifests
-
-# Mengirim pesan sebelum repo sync
-send_telegram_message "Repo initialization selesai. Memulai repo sync pada $(get_current_time_asia_jakarta)..." "🔵"
+# Menghapus dan membuat direktori
+clean_and_create_directory "$clean_directory"
 
 # Repo Sync
-repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags 2>&1 | \
-while IFS= read -r line; do
-    if [[ $line == *"fatal"* || $line == *"error"* ]]; then
-        send_telegram_message "Error: $line" "🟥"
-    fi
-done
+repo_sync
 
-# Mengirim pesan setelah repo sync
-send_telegram_message "Repo sync selesai pada $(get_current_time_asia_jakarta). Melanjutkan tugas..." "🟩"
+# Inisialisasi repo dengan link GitHub
+repo_url="https://github.com/your/repo.git"
+repo_branch="main"  # Ganti dengan nama branch yang diinginkan
+init_repo "$repo_url" "$repo_branch"
 
-# Bagian build ROM
-LUNCH="superior_lavender-userdebug"  # Sesuaikan dengan format yang sesuai dengan proyek Anda
+# Clone local manifest repository
+git_url="https://github.com/FebriCahyaa/local_manifest.git"
+manifest_branch="after"
+clone_manifest "$git_url" "$manifest_branch"
 
-# Memulai pembangunan ROM
-send_telegram_message "🚀 Memulai proses membangun ROM ($LUNCH) pada $(get_current_time_asia_jakarta)..." "🟨"
-log_build_start
-source build/envsetup.sh
-lunch $LUNCH
+# Repo Sync kembali dengan jumlah core yang ditentukan
+repo_sync
 
-# Hitung jumlah langkah dalam proses pembangunan
-total_build_steps=$(grep -c ^processor /proc/cpuinfo)
-current_build_step=0
+# Skenario build ROM
+build_rom
 
-# Membuat perulangan untuk mengikuti langkah-langkah pembangunan
-while ((current_build_step < total_build_steps)); do
-    # Jalankan langkah pembangunan
-    make -j$(nproc --all) 2>&1 | \
-    while IFS= read -r build_line; do
-        if [[ $build_line == *"error"* ]]; then
-            send_telegram_message "❌ Error: $build_line" "🟥"
-        fi
-    done
+# Membuat changelog
+create_changelog
 
-    # Tambahkan ke langkah pembangunan saat ini
-    ((current_build_step++))
+# Upload ROM ke SourceForge
+upload_rom
 
-    # Kirimkan persentase pembangunan ke Telegram
-    send_build_progress "$total_build_steps" "$current_build_step"
-done
+# Menghitung integritas SHA untuk ROM
+calculate_sha
 
-# Mengecek apakah pembangunan berhasil atau tidak
-if [ -f "out/target/product/$DEVICE/*.zip" ]; then
-    # Setelah berhasil membangun ROM, mendapatkan lokasi OUT dan DEVICE
-    OUT="$(pwd)/out/target/product/$DEVICE"
-    DEVICE="$(sed -e "s/^.*_//" -e "s/-.*//" <<< "$LUNCH")"
-
-    send_telegram_message "✅ Pembangunan ROM selesai pada $BUILD_END_TIME. ROM berhasil dibuat!" "🟩"
-    log_build_end
-    cleanup_after_build
-
-    # Upload ROM ke SFTP SourceForge
-    local_rom_file="$OUT/*.zip"
-    remote_rom_dir="$DEVICE"
-    upload_to_sftp "$local_rom_file" "$remote_rom_dir"
-
-    # Kirim link unduhan ke Telegram bersama dengan md5sum dan size
-    md5sum=$(md5sum "$local_rom_file" | awk '{print $1}')
-    size=$(ls -sh "$local_rom_file" | awk '{print $1}')
-    rom_file_name=$(basename "$local_rom_file")
-    rom_download_link="https://downloads.sourceforge.net/project/semutprjct/Lavender/$remote_rom_dir/$rom_file_name"
-    md5sum_message="MD5sum: $md5sum"
-    size_message="Size: $size"
-    send_telegram_message "🔗 [Unduh ROM terbaru]($rom_download_link)\n\n🔍 $md5sum_message\n📦 $size_message" "🔵"
-
-    # Kirim pesan selamat menikmati ROMnya
-    send_telegram_message "Selamat menikmati ROMnya! 🚀" "🟩"
-else
-    send_telegram_message "❌ Pembangunan ROM gagal pada $BUILD_END_TIME. Cek log untuk detailnya." "🟥"
-    send_error_log  # Memanggil fungsi untuk mengirim error.log ke Telegram
-fi
+# Membuat error log jika terjadi masalah
+create_error_log
