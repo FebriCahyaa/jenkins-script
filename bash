@@ -2,16 +2,16 @@
 
 # Informasi Proyek
 clean_directory="/mnt/rizkyfebian/rom"
-CORE=8
-TELEGRAM_API_KEY="YOUR_BOT_TOKEN"
-TELEGRAM_CHAT_ID="YOUR_CHAT_ID"
-SF_USERNAME="your_sf_username"
+CORE=12
+TELEGRAM_API_KEY="6946505231:AAH2L1QKhNWEBfJSDwZImGRhkEwfBLQzyy8"
+TELEGRAM_CHAT_ID="-1002039884441"
+SF_USERNAME="semutimut76"
 SF_HOST="frs.sourceforge.net"
-SF_REMOTE_DIR="/home/frs/project/your_project"
-SF_PASSWORD="your_sf_password"
-ROM_NAME="your_rom_name"
-LUNCH="your_device-userdebug"  # Sesuaikan dengan proyek Anda
-MAINTAINER="Your Name"
+SF_REMOTE_DIR="/home/frs/project/semutprjct/Lavender"
+SF_PASSWORD="Fbrichy2402"
+ROM_NAME="Afterlife"
+LUNCH="afterlife_lavender-userdebug"  # Sesuaikan dengan proyek Anda
+MAINTAINER="FebriCahyaa"
 CHANGES_FILE="changelog.txt"
 ERROR_LOG="error.log"
 
